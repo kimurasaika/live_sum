@@ -1,6 +1,7 @@
 const startBtn = document.getElementById("start");
 const stopBtn = document.getElementById("stop");
 const transcriptDiv = document.getElementById("transcript");
+const summaryDiv = document.getElementById("summary");
 
 let mediaRecorder;
 let ws;
@@ -10,7 +11,12 @@ startBtn.onclick = async () => {
   ws = new WebSocket(`ws://${location.host}/ws/asr`);
 
   ws.onmessage = (event) => {
-    transcriptDiv.textContent += event.data + " ";
+    const msg = JSON.parse(event.data);
+    if (msg.type === "transcript") {
+      transcriptDiv.textContent += msg.text + " ";
+    } else if (msg.type === "summary") {
+      summaryDiv.textContent = msg.text;
+    }
   };
 
   ws.onopen = () => {

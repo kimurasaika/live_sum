@@ -23,6 +23,8 @@
 
 | Fix live WS blocking bug + swap backend/asr.py to Typhoon NeMo engine | FULL PASS, both acceptance criteria verified. (1) `python test_asr.py` exit 0, `TRANSCRIPT: 'สวัสดีครับ วันนี้เราจะมาประชุมเรื่องงบประมาณของบริษัท'`, 4/4 matched, PASS — now via NeMo-based `transcribe_chunk`. (2) Live WS check: killed stale server (PID 24900, had old code loaded — module-level state doesn't hot-reload, had to restart), started fresh `uvicorn backend.main:app`, ran `scripts/test_live_ws.py` — `CONNECTED` then `RECEIVED: สวัสดีครับ วันนี้เราจะมาประชุมเรื่องงบประมาณของบริษัท` with no ping-timeout, no hang (previously this exact test died silently after 60s+). Fix: `backend/main.py` now runs `transcribe_chunk` via `loop.run_in_executor(None, ...)` instead of calling it synchronously in the async handler. `backend/asr.py` rewritten: NeMo `ASRModel.from_pretrained("typhoon-ai/typhoon-asr-streaming-115m")`, preprocesses via pydub same as before, writes to a closed `NamedTemporaryFile` before `export()`/`transcribe()` (NeMo's API takes file paths, not in-memory buffers — Windows requires closing the tempfile handle first or hits a file-lock error). `requirements.txt` +`nemo_toolkit[asr]`. | backend/asr.py, backend/main.py, requirements.txt |
 
+| Wire live summarization into WebSocket ASR path | FULL PASS, verified via `scripts/test_live_summary.py` sending 3 real audio chunks to a live `uvicorn` server: got 3 `{"type":"transcript",...}` messages + 1 `{"type":"summary",...}` message (after the 3rd chunk, per `SUMMARIZE_EVERY_N_CHUNKS=3`), all non-empty. `backend/main.py` now accumulates transcript fragments per connection and calls `summarize_text()` via `run_in_executor` every Nth chunk, sending the result as a distinct JSON message type. `frontend/app.js`+`index.html` updated to parse JSON and render transcript/summary in separate divs (untested in a real browser — same caveat as before). **REAL BUG FOUND AND FIXED**: first attempt hung indefinitely with flat CPU (confirmed via `Get-Process`, not a compute-bound hang) — root cause: NeMo's first `transcribe()` call triggers numba JIT compilation, and doing that lazily inside a `run_in_executor` worker thread deadlocks on Windows. Fix: added a FastAPI `@app.on_event("startup")` handler that calls `get_model()` + one dummy `transcribe_chunk()` + `get_summarizer()` synchronously on the main thread before accepting connections — forces the JIT compile to happen main-thread-side once, at boot, not on first live request. Startup now takes ~2-3 min (model load + JIT compile + mT5 load) instead of being near-instant — acceptable one-time cost, not optimized further. **QUALITY CAVEAT FOUND**: summarizing a short/repetitive transcript (3x the same short sentence, from sending the same test chunk 3 times) produced a hallucinated, completely unrelated summary — `'โครงการก่อสร้างโรงแรมแห่งหนึ่งในกรุงลอนดอนของอังกฤษ กําลังเผชิญกับวิกฤตครั้งใหญ่'` (a London hotel construction crisis — nothing in the input). mT5 on very short/degenerate input is unreliable; real multi-minute meeting transcripts (varied, longer) may not hit this failure mode, but it's unverified — noting as a known risk, not fixing `summarize_text()`'s robustness in this task (was out of scope). | backend/main.py, frontend/app.js, frontend/index.html, scripts/test_live_summary.py |
+
 ## Current Blockers
 - **RESOLVED**: backend/asr.py model choice — was stuck on "small" vs "medium" vs "large-v3"
   faster-whisper tradeoff for multiple sessions. Resolved by swapping engines entirely to
@@ -32,10 +34,14 @@
   `scripts/bench_asr.py` comparisons only.
 - **RESOLVED**: live WS event-loop-blocking bug — fixed via `run_in_executor`, verified with a
   real WS client (see Completed Tasks).
-- **NEXT**: live summarization still not wired into the live WebSocket path — explicitly
-  deferred out of this task's scope. `summarize_text()` is still only called from the offline
-  batch script (`scripts/run_pipeline.py`). Needs its own scoped task: likely accumulate
-  transcript fragments and summarize periodically or on a client-triggered "summarize now".
+- **RESOLVED**: live summarization wired into the WebSocket path (see Completed Tasks) — plus
+  found and fixed a real Windows-specific numba JIT deadlock in the process.
+- **NEW**: mT5 summarization quality on short/repetitive transcripts is unreliable — produced a
+  fully hallucinated, unrelated summary in the verification test (see Completed Tasks quality
+  caveat). Not yet tested against a real, longer, varied transcript through the live path — the
+  offline batch pipeline test earlier (`data/sample_pipeline_output.md`) also showed weak
+  summaries, so this may be a broader `summarize_text()`/mT5 tuning issue, not just a short-input
+  edge case. Worth investigating before trusting live summaries for real use.
 - Real browser mic -> WebSocket flow not yet tested (no browser automation run). Only backend
   pipeline, server boot, and a raw WS client have been verified directly.
 - `data/sample_pipeline_output.md` (small-model transcript, garbled) is now stale as a quality
