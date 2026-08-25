@@ -1,61 +1,56 @@
 # TASK.md — Current Task
 
 ## Task Name
-Add optional cloud LLM summarization backend (OpenRouter) — explicit deviation from offline-only
+Fix batch/long-audio OOM — chunk audio before NeMo transcribe (same pattern as live path)
 
 ## What This Task Requires
-**DEVIATION FROM AGENTS.md HARD CONSTRAINT, USER-CONFIRMED**: AGENTS.md's "Fully offline"
-constraint is relaxed for summarization only, per explicit user decision (asked directly:
-"ยกเว้นเฉพาะ summarize ใช้ OpenRouter API ได้"). ASR stays 100% local — audio never leaves the
-machine. Only the derived text transcript may be sent to OpenRouter when this backend is
-explicitly enabled. AGENTS.md itself is not edited (protocol: only the human changes it) — this
-deviation is logged in PROGRESS.md and in `skills/prime-directive.md` instead.
+`transcribe_chunk()` in `backend/asr.py` currently passes whole audio files straight to NeMo's
+`model.transcribe()`. Works fine up to ~10 min; OOMs (~32GB alloc attempt) around 30 min because
+Conformer self-attention memory scales O(n²) with audio length. Estimated real ceiling on this
+machine (16.7GB RAM): ~15-18 min for a single unchunked call — see PROGRESS.md for the math.
 
-1. `backend/summarize.py`: add an OpenRouter-backed summarizer function alongside the existing
-   local mT5 one. Config via env vars: `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`,
-   `SUMMARIZER_BACKEND` (`local` | `openrouter`, default `local` — cloud is opt-in, never the
-   silent default).
-2. `.env.example`: template with the three vars above, no real key.
-3. `.gitignore`: add `.env` (real file with the user's key must never be committed).
-4. `requirements.txt`: add `python-dotenv` (load `.env`) and `openai` (OpenRouter is
-   OpenAI-API-compatible, reuse that SDK rather than hand-roll HTTP).
-5. `backend/main.py`: no change to call sites — `summarize_text()` stays the single entry
-   point, it internally dispatches to local or OpenRouter based on `SUMMARIZER_BACKEND`.
+The live WebSocket path already avoids this (chunks audio into 3s pieces client-side before
+each `transcribe_chunk()` call, verified stable through a 200-chunk/~10-min continuous real
+stream). This task ports that same chunking discipline into the *batch* path, so a single long
+audio file (30 min–3 hr) can be transcribed without OOM.
+
+1. Add audio-chunking logic reusable by both `backend/asr.py` batch calls and any future batch
+   script — split a long `AudioSegment` into fixed-size pieces (e.g. 20-30s, tune based on
+   real memory headroom) before calling NeMo `transcribe()` per piece, then join the transcripts.
+2. Decide where this lives: either inside `transcribe_chunk()` itself (auto-chunk if input
+   audio exceeds some duration threshold), or as a separate `transcribe_long_audio()` function
+   so the live per-chunk path (already small, always <10s) stays untouched and simple.
+3. Re-run `scripts/test_30min_pipeline.py` (already exists, was the repro case) — should
+   complete without OOM once fixed.
 
 ## Files In Scope
-- backend/summarize.py
-- .env.example
-- .gitignore
-- requirements.txt
+- backend/asr.py
+- scripts/test_30min_pipeline.py (re-run only, not necessarily edited)
 
 ## Files Out Of Scope
-- backend/main.py, backend/asr.py — no changes; ASR stays local-only, unaffected
-- AGENTS.md — never edited by the agent, per protocol
+- backend/main.py — live WebSocket path already chunks correctly client-side, don't touch
+- backend/summarize.py — summarization isn't the bottleneck here, already handles long text
+  via its own 2000-char chunking
 
 ## Acceptance Criteria
-1. With `SUMMARIZER_BACKEND` unset or `local`: behavior identical to before (mT5, no network
-   call) — `python test_asr.py`-style smoke check unaffected.
-2. With `SUMMARIZER_BACKEND=openrouter` and a real `OPENROUTER_API_KEY` set (user provides
-   their own key, not committed): `summarize_text()` returns a real OpenRouter completion,
-   verified with an actual API call once the user has added their key.
-3. `.env` is gitignored; `.env.example` has no real secret and is committed.
+`python scripts/test_30min_pipeline.py` exits 0, writes `data/summary_30min.md`, no
+`RuntimeError`/`MemoryError`. Report TRANSCRIBE_TIME and transcript length as proof — compare
+against the 10-min baseline (223s transcribe, RTF 0.372) to sanity-check the chunked approach
+didn't tank speed.
 
 ## Approach
-1. `.env.example` + `.gitignore` update first (cheap, no code risk).
-2. `summarize.py`: keep `get_summarizer()`/local path as-is; add
-   `_summarize_openrouter(text)` using the `openai` SDK pointed at
-   `base_url="https://openrouter.ai/api/v1"`. `summarize_text()` branches on
-   `os.getenv("SUMMARIZER_BACKEND", "local")`.
-3. Load `.env` via `python-dotenv` at process start (`load_dotenv()` in `summarize.py` or
-   `main.py` — pick one place, avoid double-loading).
-4. Verify local path still works unchanged (default). Verify OpenRouter path once user has
-   supplied a real key — cannot self-verify without one.
+1. Write a chunking helper (pydub `AudioSegment` slicing, same technique already used in
+   `scripts/test_live_stream_real_clip.py`'s `chunk_audio()` — can likely reuse/adapt that).
+2. Wire it into `backend/asr.py` for inputs over a duration threshold (~60s, tune after testing).
+3. Join per-chunk transcripts with spaces (same as the live path's `" ".join(transcript_parts)`).
+4. Test on the existing `data/clip.wav` (currently the 30-min segment from the OOM repro).
 
 ## Known Risks
-- Model id for the "free" OpenRouter model the user mentioned was garbled in chat ("oxalpha")
-  — not guessing a specific model slug. `OPENROUTER_MODEL` is a required env var the user must
-  set themselves to the exact free model slug from their OpenRouter account.
-- This is a real, permanent architecture exception, not a toggle to forget about — flagged
-  loudly in PROGRESS.md and `skills/prime-directive.md`/`skills/cipher-sanctum.md` so it isn't
-  silently re-assumed "offline" in a future session.
-- Never log or print the API key. Never commit `.env`.
+- Chunk boundary cuts mid-word/mid-sentence — transcript quality may degrade slightly at chunk
+  edges compared to a single unchunked pass (which itself only worked up to ~10 min anyway, so
+  no regression vs. a working baseline — just a new tradeoff to be aware of).
+- Chunk size is a speed/memory tradeoff — smaller chunks are safer but add more per-chunk
+  overhead (model call setup cost seen earlier, ~tenths of a second per call); needs empirical
+  tuning, not a guessed constant trusted blindly.
+- `data/clip.wav` right now holds the 30-min segment (overwrote the earlier 10-min one) — reuse
+  it for this test rather than re-fetching, to save a yt-dlp round-trip.
