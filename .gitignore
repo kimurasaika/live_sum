@@ -14,3 +14,5 @@ pipeline_err.log
 
 # local model caches, if ever created inside repo
 *.nemo
+
+.claude/

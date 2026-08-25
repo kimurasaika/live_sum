@@ -50,3 +50,33 @@ uvicorn backend.main:app    # run server
 ```
 
 Full history of what was tried, what failed and why, and open blockers: see `PROGRESS.md`. Current task scope: `TASK.md`. Hard rules and session protocol: `AGENTS.md`.
+
+## Skills
+
+Domain guides in `skills/`, one file per concern:
+
+| File | Covers |
+|---|---|
+| `prime-directive.md` | Hard constraints (offline-only, local storage, CPU ASR, no client-side ASR) |
+| `iron-gate-backend.md` | FastAPI backend — routes, WebSocket handler, known blocking bug |
+| `neon-forge-frontend.md` | Mic-capture UI — flow, chunking, current gaps |
+| `aegis-ward.md` | Security / offline-safety rules |
+| `vault-of-records.md` | Data/storage conventions — what's committed vs. local-only |
+| `trial-by-fire.md` | Testing and verification — acceptance checks, benchmark scripts |
+| `chronicle-of-changes.md` | Condensed project history |
+| `skyforge-deployment.md` | Run/deploy instructions |
+| `quantum-frontend.md` | Frontend (alias of `neon-forge-frontend.md`) |
+| `abyssal-api.md` | Backend/API (alias of `iron-gate-backend.md`) |
+| `cipher-sanctum.md` | Security (alias of `aegis-ward.md`) |
+| `test-chamber.md` | Testing (alias of `trial-by-fire.md`) |
+| `deployment-ascension.md` | CI/CD (stub — none exists yet) + deploy (alias of `skyforge-deployment.md`) |
+| `error-exorcism.md` | Recurring error patterns and how they were actually fixed |
+| `commit-prophecy.md` | Git conventions |
+| `phantom-session.md` | Auth/Session/JWT — stub, not applicable yet |
+| `database-catacombs.md` | Database — stub, not applicable yet |
+| `migration-rites.md` | DB migrations — stub, not applicable yet |
+| `cache-dimension.md` | Redis/cache — stub, not applicable yet |
+| `observability-eye.md` | Logging/metrics/monitoring — stub, not applicable yet |
+| `mcp-portal.md` | MCP integration — stub, not applicable yet |
+| `prompt-firewall.md` | Prompt injection defense — stub, low relevance currently |
+| `legacy-tomb.md` | Legacy code handling — stub, not applicable yet |
