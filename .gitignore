@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# large local media, not meant for git
+data/raw_audio.m4a
+data/clip.wav
+data/_bench_tmp.wav
+
+# transient pipeline run logs
+pipeline_out.log
+pipeline_err.log
+
+# local model caches, if ever created inside repo
+*.nemo
