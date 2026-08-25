@@ -21,12 +21,28 @@
 - `nvidia/nemotron-3.5-asr-streaming-0.6b`, `typhoon-ai/typhoon-asr-realtime`, `typhoon-ai/typhoon-asr-streaming-115m`, `typhoon-ai/typhoon-asr-streaming-nemotron-0.6b` — all failed: `Unable to open file 'model.bin'`. These are NeMo/Conformer-architecture models (streaming-native design), not Whisper/ct2 — fundamentally incompatible with `faster_whisper.WhisperModel`. Would require adding `nemo_toolkit` as a separate loader/dependency to use — real integration work, not a config swap. Do not retry via `WhisperModel`.
 - `mesolitica/Malaysian-STT-Whisper`, `mesolitica/Malaysian-STT-Whisper-Stage2` — 404 `RepositoryNotFoundError`, repo IDs do not exist as given (web search summary was inaccurate). Not retried.
 
+| Fix live WS blocking bug + swap backend/asr.py to Typhoon NeMo engine | FULL PASS, both acceptance criteria verified. (1) `python test_asr.py` exit 0, `TRANSCRIPT: 'สวัสดีครับ วันนี้เราจะมาประชุมเรื่องงบประมาณของบริษัท'`, 4/4 matched, PASS — now via NeMo-based `transcribe_chunk`. (2) Live WS check: killed stale server (PID 24900, had old code loaded — module-level state doesn't hot-reload, had to restart), started fresh `uvicorn backend.main:app`, ran `scripts/test_live_ws.py` — `CONNECTED` then `RECEIVED: สวัสดีครับ วันนี้เราจะมาประชุมเรื่องงบประมาณของบริษัท` with no ping-timeout, no hang (previously this exact test died silently after 60s+). Fix: `backend/main.py` now runs `transcribe_chunk` via `loop.run_in_executor(None, ...)` instead of calling it synchronously in the async handler. `backend/asr.py` rewritten: NeMo `ASRModel.from_pretrained("typhoon-ai/typhoon-asr-streaming-115m")`, preprocesses via pydub same as before, writes to a closed `NamedTemporaryFile` before `export()`/`transcribe()` (NeMo's API takes file paths, not in-memory buffers — Windows requires closing the tempfile handle first or hits a file-lock error). `requirements.txt` +`nemo_toolkit[asr]`. | backend/asr.py, backend/main.py, requirements.txt |
+
 ## Current Blockers
-- **NEW, high priority, CONFIRMED on real audio**: Typhoon streaming ASR (`typhoon-ai/typhoon-asr-streaming-115m`) via NeMo loader beats Whisper `medium` on both speed (RTF 0.372 vs 0.81 on real 10-min noisy clip) and transcript quality (coherent vs garbled). Known defect: rare repetition-loop artifact (see Completed Tasks). NEXT SESSION: this is a strong candidate to replace faster-whisper as backend/asr.py's engine, but swap is nontrivial — different API (`ASRModel.transcribe()` vs `WhisperModel.transcribe()`), different streaming/chunking model needed for the live WebSocket mic path (backend currently does file-based chunk transcription, NeMo RNNT streaming has its own state-carry API for true incremental decoding). Needs its own scoped TASK.md — not a drop-in swap.
-- `nemo_toolkit[asr]` install confirmed NOT to break faster-whisper stack — ran `python test_asr.py` post-install, faster_whisper imports/loads/transcribes fine. Output was FAIL (2/4 matched, `MATCHED: ['สวัสดี', 'ประชุม']`) but this is pre-existing: backend/asr.py is hardcoded to `"small"` model, and PROGRESS.md already recorded small model as 2/4 on this exact sample — not a new regression, just re-confirms known weak baseline. `gtts` click-version conflict still unverified in practice (not exercised by this test).
-- backend/asr.py currently set to "small" model (deviated from the large-v3 verified in the ASR task — see Failed Attempts) because large-v3 and medium were both too slow on a real 10-min clip (56+ min / 30+ min CPU, still not done). NEXT SESSION: try `beam_size=1` (greedy decode, currently unset = faster-whisper default beam_size=5) on medium or large-v3 — suspect default beam_size=5 is the real cause of the slowdown on long/noisy real speech, not raw model size. If beam_size=1 fixes speed, re-verify accuracy against test_asr.py before trusting it for real use.
-- **NEXT SESSION PRIORITY**: bench_asr.py results (5-sample gTTS testset) recommend swapping `backend/asr.py` model from `"small"` to `"medium"` — best min-max score (0.690), RTF 0.81 (realtime-capable, but narrow ~19% margin), accuracy 0.70 vs small's 0.30. NOT YET APPLIED to backend/asr.py — user has not confirmed the swap. Before applying: (1) get user confirmation (out of current TASK.md scope, which is report-only), (2) verify with `beam_size=1` against real long audio (`data/clip.wav`) since the gTTS testset is short/clean and does not represent real noisy/code-switched meeting speech at length — medium already failed real 10-min-clip speed once before (see above blocker).
-- Real browser mic -> WebSocket flow not yet tested (no browser automation run). Only backend pipeline and server boot verified directly.
-- Current README.md summary quality is rough (small model + code-switched casual speech = garbled transcript, weak mT5 summary) — see Completed Tasks row for detail. Worth re-running once beam_size tuning improves speed enough to afford a bigger model.
-- faster-whisper/HF model downloads required one-time network access — accepted as setup-time exception (runtime stays offline after cache). small/medium/large-v3 whisper models + mT5_multilingual_XLSum all cached locally now.
-- gTTS and yt-dlp (both one-time network calls, user-approved) used to fetch test/input audio — not part of runtime path.
+- **RESOLVED**: backend/asr.py model choice — was stuck on "small" vs "medium" vs "large-v3"
+  faster-whisper tradeoff for multiple sessions. Resolved by swapping engines entirely to
+  `typhoon-ai/typhoon-asr-streaming-115m` via NeMo (see Completed Tasks) — faster and more
+  accurate than any faster-whisper size tried. beam_size tuning question is now moot (no longer
+  using faster-whisper as the default engine); faster-whisper stays available for
+  `scripts/bench_asr.py` comparisons only.
+- **RESOLVED**: live WS event-loop-blocking bug — fixed via `run_in_executor`, verified with a
+  real WS client (see Completed Tasks).
+- **NEXT**: live summarization still not wired into the live WebSocket path — explicitly
+  deferred out of this task's scope. `summarize_text()` is still only called from the offline
+  batch script (`scripts/run_pipeline.py`). Needs its own scoped task: likely accumulate
+  transcript fragments and summarize periodically or on a client-triggered "summarize now".
+- Real browser mic -> WebSocket flow not yet tested (no browser automation run). Only backend
+  pipeline, server boot, and a raw WS client have been verified directly.
+- `data/sample_pipeline_output.md` (small-model transcript, garbled) is now stale as a quality
+  reference — the Typhoon transcript in `data/summary_kSmdiXCeCdQ_typhoon.md` (if generated) or
+  the PROGRESS.md Completed Tasks entry for the NeMo real-clip test is the current reference.
+- faster-whisper/HF/NeMo model downloads required one-time network access — accepted as
+  setup-time exception (runtime stays offline after cache). small/medium/large-v3 whisper
+  models, `typhoon-asr-streaming-115m`, and `mT5_multilingual_XLSum` all cached locally now.
+- gTTS and yt-dlp (both one-time network calls, user-approved) used to fetch test/input audio —
+  not part of runtime path.

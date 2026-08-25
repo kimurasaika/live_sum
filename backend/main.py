@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -20,10 +21,11 @@ def index():
 @app.websocket("/ws/asr")
 async def asr_socket(websocket: WebSocket):
     await websocket.accept()
+    loop = asyncio.get_running_loop()
     try:
         while True:
             audio_bytes = await websocket.receive_bytes()
-            text = transcribe_chunk(audio_bytes)
+            text = await loop.run_in_executor(None, transcribe_chunk, audio_bytes)
             if text:
                 await websocket.send_text(text)
     except WebSocketDisconnect:

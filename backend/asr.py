@@ -1,24 +1,38 @@
 import io
-from faster_whisper import WhisperModel
+import os
+import tempfile
+
+os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS", "1")
+
 from pydub import AudioSegment
 
-_model: WhisperModel | None = None
+_model = None
+
+MODEL_ID = "typhoon-ai/typhoon-asr-streaming-115m"
 
 
-def get_model() -> WhisperModel:
+def get_model():
     global _model
     if _model is None:
-        _model = WhisperModel("small", device="cpu", compute_type="int8")
+        from nemo.collections.asr.models import ASRModel
+        _model = ASRModel.from_pretrained(model_name=MODEL_ID, map_location="cpu")
+        _model.eval()
     return _model
 
 
 def transcribe_chunk(audio_bytes: bytes) -> str:
     audio = AudioSegment.from_file(io.BytesIO(audio_bytes))
     audio = audio.set_frame_rate(16000).set_channels(1)
-    pcm = io.BytesIO()
-    audio.export(pcm, format="wav")
-    pcm.seek(0)
 
     model = get_model()
-    segments, _ = model.transcribe(pcm, language="th", vad_filter=True)
-    return "".join(segment.text for segment in segments).strip()
+
+    tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+    tmp.close()
+    try:
+        audio.export(tmp.name, format="wav")
+        result = model.transcribe([tmp.name])
+        text = result[0].text if hasattr(result[0], "text") else str(result[0])
+    finally:
+        os.remove(tmp.name)
+
+    return text.strip()
