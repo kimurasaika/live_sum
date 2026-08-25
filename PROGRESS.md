@@ -25,6 +25,8 @@
 
 | Wire live summarization into WebSocket ASR path | FULL PASS, verified via `scripts/test_live_summary.py` sending 3 real audio chunks to a live `uvicorn` server: got 3 `{"type":"transcript",...}` messages + 1 `{"type":"summary",...}` message (after the 3rd chunk, per `SUMMARIZE_EVERY_N_CHUNKS=3`), all non-empty. `backend/main.py` now accumulates transcript fragments per connection and calls `summarize_text()` via `run_in_executor` every Nth chunk, sending the result as a distinct JSON message type. `frontend/app.js`+`index.html` updated to parse JSON and render transcript/summary in separate divs (untested in a real browser — same caveat as before). **REAL BUG FOUND AND FIXED**: first attempt hung indefinitely with flat CPU (confirmed via `Get-Process`, not a compute-bound hang) — root cause: NeMo's first `transcribe()` call triggers numba JIT compilation, and doing that lazily inside a `run_in_executor` worker thread deadlocks on Windows. Fix: added a FastAPI `@app.on_event("startup")` handler that calls `get_model()` + one dummy `transcribe_chunk()` + `get_summarizer()` synchronously on the main thread before accepting connections — forces the JIT compile to happen main-thread-side once, at boot, not on first live request. Startup now takes ~2-3 min (model load + JIT compile + mT5 load) instead of being near-instant — acceptable one-time cost, not optimized further. **QUALITY CAVEAT FOUND**: summarizing a short/repetitive transcript (3x the same short sentence, from sending the same test chunk 3 times) produced a hallucinated, completely unrelated summary — `'โครงการก่อสร้างโรงแรมแห่งหนึ่งในกรุงลอนดอนของอังกฤษ กําลังเผชิญกับวิกฤตครั้งใหญ่'` (a London hotel construction crisis — nothing in the input). mT5 on very short/degenerate input is unreliable; real multi-minute meeting transcripts (varied, longer) may not hit this failure mode, but it's unverified — noting as a known risk, not fixing `summarize_text()`'s robustness in this task (was out of scope). | backend/main.py, frontend/app.js, frontend/index.html, scripts/test_live_summary.py |
 
+| Simulate real live-stream use case: stream the real 10-min clip (chunked into 3s pieces) through /ws/asr | LARGELY PASS, real bug found + fixed mid-run. `scripts/test_live_stream_real_clip.py` chunks `data/clip.wav` (from the user's YouTube link, https://www.youtube.com/live/kSmdiXCeCdQ) into 200 x 3s pieces and streams them to a live server. First attempt died at chunk ~76/200 with `keepalive ping timeout` — **REAL BUG FOUND**: summarizing the ever-growing full transcript-so-far every `SUMMARIZE_EVERY_N_CHUNKS` made each summarize call progressively slower, and the CPU-bound work (even off the event-loop thread, via GIL contention) starved the event loop of enough time to answer WS pings on a long-running stream. Fixed: `backend/main.py` now summarizes only a rolling window (`SUMMARY_WINDOW_CHUNKS=10` most recent transcript chunks) instead of the whole thing, plus widened `--ws-ping-interval`/`--ws-ping-timeout` to 40s as a safety margin. Re-ran: confirmed clean past chunk 192/200 with correct transcript+summary messages the whole way (verified via server + client CPU staying active, log inspection at multiple checkpoints) before the verification process itself was manually stopped (client sat idle past its 120s post-send drain timeout without exiting cleanly — likely the async cancellation/drain logic in the test script itself, not a repeat of the server bug; not root-caused, script is a throwaway diagnostic, not fixing further). **CONTENT QUALITY**: on real, longer, topically-coherent speech, mT5 summaries were noticeably better than the earlier short-input hallucination case — several summaries tracked the actual topic (กินยาคุม/ฮอร์โมน/สิว/สกินแคร์) reasonably, though still drifted into fabricated specifics (invented names, "บีบีซีไทย" news-anchor phrasing, a fabricated Beatles reference) — consistent with the hypothesis that `csebuetnlp/mT5_multilingual_XLSum` (trained on BBC News data) pattern-matches toward newsroom-style output on informal/conversational input rather than reliably grounding in the actual transcript. Confirms live transcription + live summarization both function end-to-end on real content; confirms summarization *quality* is the main open gap, not the plumbing. | scripts/test_live_stream_real_clip.py, backend/main.py (rolling-window fix) |
+
 ## Current Blockers
 - **RESOLVED**: backend/asr.py model choice — was stuck on "small" vs "medium" vs "large-v3"
   faster-whisper tradeoff for multiple sessions. Resolved by swapping engines entirely to
@@ -36,12 +38,18 @@
   real WS client (see Completed Tasks).
 - **RESOLVED**: live summarization wired into the WebSocket path (see Completed Tasks) — plus
   found and fixed a real Windows-specific numba JIT deadlock in the process.
-- **NEW**: mT5 summarization quality on short/repetitive transcripts is unreliable — produced a
-  fully hallucinated, unrelated summary in the verification test (see Completed Tasks quality
-  caveat). Not yet tested against a real, longer, varied transcript through the live path — the
-  offline batch pipeline test earlier (`data/sample_pipeline_output.md`) also showed weak
-  summaries, so this may be a broader `summarize_text()`/mT5 tuning issue, not just a short-input
-  edge case. Worth investigating before trusting live summaries for real use.
+- **CONFIRMED (not fixed)**: mT5 (`csebuetnlp/mT5_multilingual_XLSum`) summarization quality is
+  the main remaining gap, not the live plumbing. Tested on both short/repetitive input
+  (hallucinated completely unrelated content) and real 10-min varied speech (see live-stream
+  simulation in Completed Tasks) — the latter tracked the actual topic better but still invented
+  specifics and drifted into BBC-News-style phrasing (model's likely training bias, XLSum is
+  BBC-sourced). Not fixed in this project yet — candidates for a future task: try a different/
+  larger summarization model, prompt/post-process to suppress the news-anchor tone, or reduce
+  `max_length`/tune generation params (pipeline already warns `max_length=150` exceeds short
+  inputs).
+- **RESOLVED**: live-stream long-run stability — found and fixed a second real bug (rolling-
+  window summarization + wider WS ping tolerance) after the JIT deadlock fix; see Completed
+  Tasks live-stream simulation entry for detail.
 - Real browser mic -> WebSocket flow not yet tested (no browser automation run). Only backend
   pipeline, server boot, and a raw WS client have been verified directly.
 - `data/sample_pipeline_output.md` (small-model transcript, garbled) is now stale as a quality

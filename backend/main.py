@@ -14,6 +14,7 @@ FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
 
 SUMMARIZE_EVERY_N_CHUNKS = 3
+SUMMARY_WINDOW_CHUNKS = 10
 
 
 @app.on_event("startup")
@@ -53,8 +54,13 @@ async def asr_socket(websocket: WebSocket):
             chunks_since_summary += 1
             if chunks_since_summary >= SUMMARIZE_EVERY_N_CHUNKS:
                 chunks_since_summary = 0
-                full_transcript = " ".join(transcript_parts)
-                summary = await loop.run_in_executor(None, summarize_text, full_transcript)
+                # Rolling window, not the ever-growing full transcript: summarizing
+                # everything-so-far makes each call slower as the meeting goes on,
+                # and the CPU-bound work (even off the event loop thread) starves
+                # the loop of GIL time long enough to blow the WS ping timeout on
+                # real long-running streams (observed past ~75 chunks / ~4 min in).
+                window_text = " ".join(transcript_parts[-SUMMARY_WINDOW_CHUNKS:])
+                summary = await loop.run_in_executor(None, summarize_text, window_text)
                 await websocket.send_json({"type": "summary", "text": summary})
     except WebSocketDisconnect:
         pass
