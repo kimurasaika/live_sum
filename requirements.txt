@@ -9,3 +9,5 @@ transformers
 sentencepiece
 torch
 nemo_toolkit[asr]
+python-dotenv
+openai

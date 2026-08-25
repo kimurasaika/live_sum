@@ -1,52 +1,61 @@
 # TASK.md — Current Task
 
 ## Task Name
-Wire live summarization into the WebSocket ASR path
+Add optional cloud LLM summarization backend (OpenRouter) — explicit deviation from offline-only
 
 ## What This Task Requires
-1. `backend/main.py`: accumulate transcript fragments per connection; every
-   `SUMMARIZE_EVERY_N_CHUNKS` non-empty transcript chunks, run `summarize_text()` on the
-   full transcript-so-far and push it to the client as a distinct message type.
-2. Switch the WS message protocol from plain text to JSON so client can tell transcript
-   updates apart from summary updates: `{"type": "transcript", "text": ...}` /
-   `{"type": "summary", "text": ...}`.
-3. `summarize_text()` is CPU-bound (mT5) — must run via `run_in_executor`, same reasoning
-   as the ASR blocking fix from the prior task. Do not reintroduce a blocking call.
-4. `frontend/app.js` + `frontend/index.html`: parse the JSON messages, render transcript and
-   summary in separate areas.
+**DEVIATION FROM AGENTS.md HARD CONSTRAINT, USER-CONFIRMED**: AGENTS.md's "Fully offline"
+constraint is relaxed for summarization only, per explicit user decision (asked directly:
+"ยกเว้นเฉพาะ summarize ใช้ OpenRouter API ได้"). ASR stays 100% local — audio never leaves the
+machine. Only the derived text transcript may be sent to OpenRouter when this backend is
+explicitly enabled. AGENTS.md itself is not edited (protocol: only the human changes it) — this
+deviation is logged in PROGRESS.md and in `skills/prime-directive.md` instead.
+
+1. `backend/summarize.py`: add an OpenRouter-backed summarizer function alongside the existing
+   local mT5 one. Config via env vars: `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`,
+   `SUMMARIZER_BACKEND` (`local` | `openrouter`, default `local` — cloud is opt-in, never the
+   silent default).
+2. `.env.example`: template with the three vars above, no real key.
+3. `.gitignore`: add `.env` (real file with the user's key must never be committed).
+4. `requirements.txt`: add `python-dotenv` (load `.env`) and `openai` (OpenRouter is
+   OpenAI-API-compatible, reuse that SDK rather than hand-roll HTTP).
+5. `backend/main.py`: no change to call sites — `summarize_text()` stays the single entry
+   point, it internally dispatches to local or OpenRouter based on `SUMMARIZER_BACKEND`.
 
 ## Files In Scope
-- backend/main.py
-- frontend/app.js
-- frontend/index.html
+- backend/summarize.py
+- .env.example
+- .gitignore
+- requirements.txt
 
 ## Files Out Of Scope
-- backend/asr.py, backend/summarize.py — reuse as-is, no changes to ASR/summarization logic
-  itself, only how/when it's called from the live loop
+- backend/main.py, backend/asr.py — no changes; ASR stays local-only, unaffected
+- AGENTS.md — never edited by the agent, per protocol
 
 ## Acceptance Criteria
-Script test (no browser available): a WS client sends >= `SUMMARIZE_EVERY_N_CHUNKS` real
-audio chunks to `/ws/asr` and receives both message types back — at least one
-`{"type":"transcript",...}` per chunk and at least one `{"type":"summary",...}` after the
-Nth chunk, with non-empty `text` in both. Printed output is the verification proof.
+1. With `SUMMARIZER_BACKEND` unset or `local`: behavior identical to before (mT5, no network
+   call) — `python test_asr.py`-style smoke check unaffected.
+2. With `SUMMARIZER_BACKEND=openrouter` and a real `OPENROUTER_API_KEY` set (user provides
+   their own key, not committed): `summarize_text()` returns a real OpenRouter completion,
+   verified with an actual API call once the user has added their key.
+3. `.env` is gitignored; `.env.example` has no real secret and is committed.
 
 ## Approach
-1. `main.py`: keep a `list[str]` of transcript fragments per connection (in-memory, scoped
-   to the websocket handler's local closure — no cross-connection state).
-2. Count non-empty transcript chunks; every Nth, join the accumulated fragments and call
-   `summarize_text()` via executor, send result as a `summary` message.
-3. Update `test_live_ws.py`-style test to send multiple chunks (reuse `test_sample_th.mp3`
-   sent N times) and print every message received, distinguishing type.
-4. Frontend: two divs (`#transcript`, `#summary`), `ws.onmessage` parses JSON and appends/
-   replaces into the right one based on `msg.type`.
+1. `.env.example` + `.gitignore` update first (cheap, no code risk).
+2. `summarize.py`: keep `get_summarizer()`/local path as-is; add
+   `_summarize_openrouter(text)` using the `openai` SDK pointed at
+   `base_url="https://openrouter.ai/api/v1"`. `summarize_text()` branches on
+   `os.getenv("SUMMARIZER_BACKEND", "local")`.
+3. Load `.env` via `python-dotenv` at process start (`load_dotenv()` in `summarize.py` or
+   `main.py` — pick one place, avoid double-loading).
+4. Verify local path still works unchanged (default). Verify OpenRouter path once user has
+   supplied a real key — cannot self-verify without one.
 
 ## Known Risks
-- Summarizing a very short transcript (few chunks in) may hit mT5's `min_length=20` in a
-  way that produces degenerate/short output — not fixing `summarize_text()`'s tuning in this
-  task, just wiring; note the quality if it looks off in the verification run.
-- Re-summarizing the *entire* transcript-so-far every N chunks (not just new text) means
-  summarization cost grows with meeting length — acceptable for now, flag as a scaling
-  concern for very long real meetings, not fixing here.
-- `SUMMARIZE_EVERY_N_CHUNKS` is a guessed cadence (3) with no user-specified interval —
-  reasonable default, easy to tune later, not asking the user to pick a number for a first
-  pass.
+- Model id for the "free" OpenRouter model the user mentioned was garbled in chat ("oxalpha")
+  — not guessing a specific model slug. `OPENROUTER_MODEL` is a required env var the user must
+  set themselves to the exact free model slug from their OpenRouter account.
+- This is a real, permanent architecture exception, not a toggle to forget about — flagged
+  loudly in PROGRESS.md and `skills/prime-directive.md`/`skills/cipher-sanctum.md` so it isn't
+  silently re-assumed "offline" in a future session.
+- Never log or print the API key. Never commit `.env`.

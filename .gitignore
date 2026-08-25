@@ -16,3 +16,6 @@ pipeline_err.log
 *.nemo
 
 .claude/
+
+# secrets — never commit
+.env
