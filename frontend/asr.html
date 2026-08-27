@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Meeting Summarizer — Realtime</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="page">
+    <header class="top">
+      <h1>Meeting Summarizer</h1>
+      <nav class="modes">
+        <a href="/asr" class="active">Realtime</a>
+        <a href="/upload">Upload</a>
+      </nav>
+    </header>
+
+    <div class="controls">
+      <button id="start">เริ่มบันทึก</button>
+      <button id="stop" disabled>หยุด</button>
+      <span class="status" id="status">พร้อมใช้งาน</span>
+    </div>
+
+    <h2>ถอดเสียง</h2>
+    <div id="transcript" class="panel empty">ยังไม่มีข้อมูล</div>
+
+    <h2>สรุปสด</h2>
+    <div id="summary" class="panel empty">ยังไม่มีข้อมูล</div>
+  </div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

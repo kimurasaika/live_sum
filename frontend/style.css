@@ -1,0 +1,114 @@
+:root {
+  --bg: #f7f5f0;
+  --panel: #ffffff;
+  --ink: #3a352e;
+  --muted: #8a8276;
+  --line: #ddd8cd;
+  --accent: #6b5d4f;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: "Hiragino Sans", "Noto Sans Thai", system-ui, -apple-system, sans-serif;
+  line-height: 1.6;
+}
+
+.page {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 3rem 1.5rem 5rem;
+}
+
+header.top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 2.5rem;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 1rem;
+}
+
+header.top h1 {
+  font-size: 1.1rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  margin: 0;
+}
+
+nav.modes { display: flex; gap: 1.25rem; }
+
+nav.modes a {
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 0.9rem;
+  padding-bottom: 0.25rem;
+  border-bottom: 1px solid transparent;
+}
+
+nav.modes a.active,
+nav.modes a:hover {
+  color: var(--ink);
+  border-bottom-color: var(--accent);
+}
+
+h2 {
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--muted);
+  margin: 2rem 0 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  padding: 1.25rem;
+  white-space: pre-wrap;
+  min-height: 3rem;
+  color: var(--ink);
+}
+
+.panel.empty { color: var(--muted); }
+
+button, .btn {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  padding: 0.6rem 1.25rem;
+  font-size: 0.9rem;
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled), .btn:hover { border-color: var(--accent); }
+button:disabled { color: var(--muted); cursor: not-allowed; }
+
+.controls { display: flex; gap: 0.75rem; align-items: center; margin-bottom: 0.5rem; }
+
+.status { font-size: 0.85rem; color: var(--muted); }
+
+.landing-links { display: flex; flex-direction: column; gap: 1rem; margin-top: 2rem; }
+
+.landing-links a {
+  display: block;
+  padding: 1.5rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  text-decoration: none;
+  color: var(--ink);
+}
+
+.landing-links a:hover { border-color: var(--accent); }
+
+.landing-links .label { font-size: 1rem; font-weight: 500; }
+.landing-links .desc { font-size: 0.85rem; color: var(--muted); margin-top: 0.25rem; }
+
+input[type="file"] { font-size: 0.9rem; }

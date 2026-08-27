@@ -1,5 +1,6 @@
 const startBtn = document.getElementById("start");
 const stopBtn = document.getElementById("stop");
+const statusEl = document.getElementById("status");
 const transcriptDiv = document.getElementById("transcript");
 const summaryDiv = document.getElementById("summary");
 
@@ -14,8 +15,10 @@ startBtn.onclick = async () => {
     const msg = JSON.parse(event.data);
     if (msg.type === "transcript") {
       transcriptDiv.textContent += msg.text + " ";
+      transcriptDiv.classList.remove("empty");
     } else if (msg.type === "summary") {
       summaryDiv.textContent = msg.text;
+      summaryDiv.classList.remove("empty");
     }
   };
 
@@ -29,6 +32,7 @@ startBtn.onclick = async () => {
     mediaRecorder.start(3000);
     startBtn.disabled = true;
     stopBtn.disabled = false;
+    statusEl.textContent = "กำลังบันทึก...";
   };
 };
 
@@ -37,4 +41,5 @@ stopBtn.onclick = () => {
   ws.close();
   startBtn.disabled = false;
   stopBtn.disabled = true;
+  statusEl.textContent = "หยุดแล้ว";
 };

@@ -1,0 +1,14 @@
+services:
+  meeting-sum:
+    build: .
+    image: meeting-sum:latest
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    volumes:
+      - hf-cache:/root/.cache/huggingface
+    restart: unless-stopped
+
+volumes:
+  hf-cache:

@@ -1,7 +1,7 @@
 import asyncio
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -33,6 +33,25 @@ def warm_up_models():
 @app.get("/")
 def index():
     return FileResponse(FRONTEND_DIR / "index.html")
+
+
+@app.get("/asr")
+def asr_page():
+    return FileResponse(FRONTEND_DIR / "asr.html")
+
+
+@app.get("/upload")
+def upload_page():
+    return FileResponse(FRONTEND_DIR / "upload.html")
+
+
+@app.post("/api/upload")
+async def upload_audio(file: UploadFile):
+    audio_bytes = await file.read()
+    loop = asyncio.get_running_loop()
+    transcript = await loop.run_in_executor(None, transcribe_chunk, audio_bytes)
+    summary = await loop.run_in_executor(None, summarize_text, transcript) if transcript else ""
+    return {"transcript": transcript, "summary": summary}
 
 
 @app.websocket("/ws/asr")

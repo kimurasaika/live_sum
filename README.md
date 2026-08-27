@@ -12,11 +12,41 @@ Local pipeline: Thai audio in (mic or file) → ASR transcript → local summari
 
 ## Structure
 ```
-backend/     FastAPI server, asr.py (faster-whisper), summarize.py (mT5)
-frontend/    minimal mic-capture UI (WebSocket client)
+backend/     FastAPI server, asr.py (Typhoon NeMo ASR), summarize.py (mT5 local / OpenRouter cloud)
+frontend/    index.html (landing), asr.html+app.js (realtime), upload.html+upload.js (file mode)
 scripts/     benchmarking + one-off pipeline scripts
 data/        test audio, benchmark testset, sample outputs
 ```
+
+## Usage — two modes
+
+| Route | Mode | Flow |
+|---|---|---|
+| `/` | Landing | Pick a mode |
+| `/asr` | Realtime | Browser mic → WebSocket → live transcript + rolling summary |
+| `/upload` | File upload | Pick an audio file → POST `/api/upload` → full transcript + one summary |
+
+## Run with Docker
+
+```
+git clone git@github.com:kimurasaika/live_sum.git
+cd live_sum
+docker build -t meeting-sum .
+docker run -p 8080:8080 --env-file .env meeting-sum
+```
+
+Open `http://localhost:8080`.
+
+Notes:
+- First container start downloads the ASR (Typhoon NeMo) and summarization (mT5) models —
+  needs network once, same as local dev. Model load + JIT warm-up adds ~2-3 min to the first
+  boot (see `backend/main.py` `warm_up_models`). To avoid re-downloading on every container
+  recreation, mount a volume for the HF cache, e.g. add `-v meeting-sum-hf-cache:/root/.cache/huggingface`
+  to the `docker run` command.
+- `--env-file .env` is only needed if using the OpenRouter cloud summarization backend
+  (`SUMMARIZER_BACKEND=openrouter`, see `.env.example`). Default (`local`) needs no env file.
+- Runtime itself makes no outbound calls beyond that one-time model download and the optional
+  OpenRouter summarize call — audio never leaves the container either way.
 
 ## Status (2026-08-25)
 

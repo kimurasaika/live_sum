@@ -2,16 +2,26 @@
 <html lang="th">
 <head>
   <meta charset="UTF-8">
-  <title>Meeting ASR</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Meeting Summarizer</title>
+  <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-  <h1>Live Thai Transcript</h1>
-  <button id="start">Start</button>
-  <button id="stop" disabled>Stop</button>
-  <h2>Transcript</h2>
-  <div id="transcript" style="white-space: pre-wrap; border: 1px solid #ccc; padding: 1em; margin-top: 1em;"></div>
-  <h2>Live Summary</h2>
-  <div id="summary" style="white-space: pre-wrap; border: 1px solid #4a90d9; padding: 1em; margin-top: 1em;"></div>
-  <script src="/static/app.js"></script>
+  <div class="page">
+    <header class="top">
+      <h1>Meeting Summarizer</h1>
+    </header>
+    <p class="status">เลือกโหมดการใช้งาน</p>
+    <div class="landing-links">
+      <a href="/asr">
+        <div class="label">โหมดสด (Realtime)</div>
+        <div class="desc">เปิดไมค์ ถอดเสียงและสรุปสดระหว่างประชุม</div>
+      </a>
+      <a href="/upload">
+        <div class="label">โหมดอัปโหลดไฟล์ (Upload)</div>
+        <div class="desc">อัปโหลดไฟล์เสียง ถอดเสียงทั้งหมดแล้วสรุปให้ทีเดียว</div>
+      </a>
+    </div>
+  </div>
 </body>
 </html>

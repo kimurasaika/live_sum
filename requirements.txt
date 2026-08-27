@@ -1,4 +1,5 @@
 fastapi
+starlette<0.39.0
 uvicorn[standard]
 faster-whisper
 websockets
@@ -11,3 +12,4 @@ torch
 nemo_toolkit[asr]
 python-dotenv
 openai
+python-multipart
