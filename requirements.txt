@@ -6,7 +6,7 @@ websockets
 pydub
 numpy
 yt-dlp
-transformers
+transformers<5.0.0
 sentencepiece
 torch
 nemo_toolkit[asr]
